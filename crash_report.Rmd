@@ -1,0 +1,271 @@
+---
+title: "crash report data mining"
+author: "RUONAN JI"
+date: "2023-10-22"
+output:
+  pdf_document: default
+  html_document: default
+  word_document: default
+---
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+library(readr)
+library(dplyr)
+library(tidyverse)
+library(lubridate)
+library(ggplot2)
+library(GGally)
+library(summarytools)
+
+df <- read_csv("C:/Users/ruona/OneDrive/Desktop/Crash_Reporting_-_Drivers_Data.csv")
+head(df)
+## Overview of the dataset
+
+missing_values <- is.na(df)
+missing_values_summary <- apply(missing_values, 2, sum)
+print(missing_values_summary)
+
+df %>%
+  summarise(across(everything(), ~sum(is.na(.))/length(.) * 100, .names = "perc_missing_{.col}"))
+
+## Data Mining
+
+# remove 3 columns that contain more than 90% of NAs
+# column 1: perc_missing_Off-Road Description
+# column 2: perc_missing_Related Non-Motorist
+# columns 3: perc_missing_Non-Motorist Substance Abuse
+new_df <- df %>%
+  select(where(~sum(is.na(.))/nrow(df) <= 0.9))
+unique(new_df$Municipality)
+# Remove 2 columns that majority wrote 'N/A'
+# columns: Municipality, Circumstance
+df_1 <- new_df %>% select(-c(Municipality, Circumstance))
+
+# Remove 9 meaningless columns
+df_2 <- df_1 %>% select(-c(`Report Number`, `Local Case Number`,
+                           `Road Name`, `Cross-Street Name`,
+                           `Person ID`, `Vehicle ID`,
+                           Latitude, Longitude, Location))
+# proper datetime format
+df_2$`Crash Date/Time` <- as.POSIXct(df_2$`Crash Date/Time`, format="%m/%d/%Y %I:%M:%S %p")
+df_2 <- df_2 %>%
+  mutate(year = year(`Crash Date/Time`),
+         month = month(`Crash Date/Time`),
+         day = day(`Crash Date/Time`),
+         hour = hour(`Crash Date/Time`),
+         minute = minute(`Crash Date/Time`),
+         day_of_week = weekdays(`Crash Date/Time`))
+
+# time series plot
+df_2 %>%
+  mutate(date = as.Date(`Crash Date/Time`)) %>%
+  group_by(date) %>%
+  summarise(num_crashes = n()) %>%
+  ggplot(aes(x = date, y = num_crashes)) +
+  geom_line() +
+  labs(title = "Number of Crashes per Day",
+       x = "Date",
+       y = "Number of Crashes")
+
+# hourly distribution
+ggplot(df_2, aes(x = hour)) +
+  geom_histogram(stat="count", bins=24, fill="skyblue") +
+  labs(title = "Distribution of Crashes Throughout the Day",
+       x = "Hour of the Day",
+       y = "Number of Crashes")
+
+# day of the week distribution
+df_2$day_of_week <- ordered(df_2$day_of_week, levels=c("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"))
+
+ggplot(df_2, aes(x = day_of_week)) +
+  geom_histogram(stat="count", fill="blue") +
+  labs(title = "Distribution of Crashes by Day of the Week",
+       x = "Day of the Week",
+       y = "Number of Crashes")
+
+# remove duplicate column - crash date
+df_2 <- df_2 %>% select(-`Crash Date/Time`)
+
+# replace 'N/A' and 'UNKOWN' with NA
+df_2 <- df_2 %>%
+  mutate(across(where(is.character), ~ifelse(. == 'N/A', NA_character_, .)),
+         across(where(is.character), ~ifelse(. == 'UNKOWN', NA_character_, .)),
+         across(where(is.numeric), ~ifelse(. == 'N/A', NA_real_, .)))
+
+# vehicle year has many wrong data (0,9999,etc)
+boxplot(df_2$`Vehicle Year`, main = "Boxplot of Vehicle Year", ylab = "Vehicle Year")
+
+# replace nonsense value with NA
+df_2 <- df_2 %>%
+  mutate(`Vehicle Year` = replace(`Vehicle Year`, !(`Vehicle Year` >= 1900 & `Vehicle Year` <= 2023), NA))
+
+# percentage of missing values
+df_2 %>%
+  summarise(across(everything(), ~sum(is.na(.))/length(.) * 100, .names = "perc_missing_{.col}"))
+
+# 4 variables contains more than 10% of NAs
+df_2 %>%
+  select(where(~sum(is.na(.))/nrow(df) > 0.1))
+
+# variable 1: Driver Substance Abuse
+df_2$`Driver Substance Abuse` <- as.factor(df_2$`Driver Substance Abuse`)
+
+# Create a ggplot bar plot
+ggplot(df_2, aes(x = `Driver Substance Abuse`)) +
+  geom_bar(fill = "blue") +
+  theme_minimal() +
+  labs(title = "Distribution of Driver Substance Abuse",
+       x = "Substance Abuse Category",
+       y = "Count") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) 
+
+# variable 2: Equipment Problems
+df_2$`Equipment Problems` <- as.factor(df_2$`Equipment Problems`)
+
+# Create a ggplot bar plot
+ggplot(df_2, aes(x = `Equipment Problems`)) +
+  geom_bar(fill = "blue") +
+  theme_minimal() +
+  labs(title = "Distribution of Equipment Problems",
+       x = "Equipment Problem Category",
+       y = "Count") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+# variable 3: Surface Condition
+df_2$`Surface Condition` <- as.factor(df_2$`Surface Condition`)
+
+# Create a ggplot bar plot
+ggplot(df_2, aes(x = `Surface Condition`)) +
+  geom_bar(fill = "blue") +
+  theme_minimal() +
+  labs(title = "Distribution of Surface Conditions",
+       x = "Surface Condition Category",
+       y = "Count") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+# variable 4: Traffic Control
+df_2$`Traffic Control` <- factor(df_2$`Traffic Control`)
+
+# Use ggplot2 to create a bar plot
+ggplot(df_2, aes(x = `Traffic Control`)) +
+  geom_bar(fill = "blue") +
+  labs(title = "Distribution of Traffic Control",
+       x = "Traffic Control Category",
+       y = "Frequency") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5))
+
+# remove 2 useless variables
+columns_to_remove <- which(names(df_2) %in% c('Driver Substance Abuse', 'Equipment Problems'))
+df_2 <- df_2[ , -columns_to_remove]
+
+# categorical variable: fill NA with mode
+# continuous variable: fill NA with median
+
+# calculate mode for character vectors
+calculate_mode_char <- function(x) {
+  ux <- unique(na.omit(x))
+  if(length(ux) == 0) return(NA_character_)
+  ux[which.max(table(x))]
+}
+
+df_2$`Surface Condition` <- as.character(df_2$`Surface Condition`)
+df_2$`Traffic Control` <- as.character(df_2$`Traffic Control`)
+
+# impute missing values
+impute_missing_values <- function(df) {
+  df %>%
+    mutate(across(where(is.character), ~ifelse(is.na(.), calculate_mode_char(.), .)),
+           across(where(is.numeric), ~ifelse(is.na(.), median(., na.rm = TRUE), .)))
+}
+
+# apply the imputation
+imputed_df <- impute_missing_values(df_2)
+
+df_2 %>%
+  select(where(is.numeric)) %>%
+  gather(key = "variable", value = "value") %>%
+  ggplot(aes(x = value)) +
+  geom_histogram(bins = 5, fill = "skyblue", color = "white") +
+  facet_wrap(~variable, scales = "free_x") +
+  theme_minimal() +
+  labs(title = "Distribution of Numeric Variables Before Imputation")
+
+
+# explore the distribution of each numerical variable
+imputed_df %>%
+  select(where(is.numeric)) %>%
+  gather(key = "variable", value = "value") %>%
+  ggplot(aes(x = value)) +
+  geom_histogram(bins = 5, fill = "skyblue", color = "white") +
+  facet_wrap(~variable, scales = "free_x") +
+  theme_minimal() +
+  labs(title = "Distribution of Numeric Variables After Imputation")
+
+# fixed vehicle year
+boxplot(imputed_df$`Vehicle Year`, main = "Boxplot of Vehicle Year", ylab = "Vehicle Year")
+
+# variable 3: Surface Condition before imputation
+df_2$`Surface Condition` <- factor(df_2$`Surface Condition`, 
+                                         levels = names(sort(table(df_2$`Surface Condition`), decreasing = TRUE)))
+
+# create the plot
+ggplot(df_2, aes(x = `Surface Condition`, fill = `Injury Severity`)) +
+  geom_bar(position = "fill", width = 0.7) +  
+  coord_flip() +  
+  labs(y = "Proportion", x = "Surface Condition", title = "Surface Condition Against Injury Severity Before Imputation") +
+  theme_minimal() +
+  theme(axis.text.y = element_text(angle = 0, hjust = 1, vjust = 0.5), 
+        axis.text.x = element_text(size = 8))
+
+# variable 3: Surface Condition after imputation
+imputed_df$`Surface Condition` <- factor(imputed_df$`Surface Condition`, 
+                                         levels = names(sort(table(imputed_df$`Surface Condition`), decreasing = TRUE)))
+
+# create the plot
+ggplot(imputed_df, aes(x = `Surface Condition`, fill = `Injury Severity`)) +
+  geom_bar(position = "fill", width = 0.7) +  
+  coord_flip() +  
+  labs(y = "Proportion", x = "Surface Condition", title = "Surface Condition Against Injury Severity After Imputation") +
+  theme_minimal() +
+  theme(axis.text.y = element_text(angle = 0, hjust = 1, vjust = 0.5), 
+        axis.text.x = element_text(size = 8))
+
+# variable 4: Traffic Control before imputation
+df_2$`Traffic Control` <- factor(df_2$`Traffic Control`, 
+                                         levels = names(sort(table(df_2$`Traffic Control`), decreasing = TRUE)))
+
+# create the plot
+ggplot(df_2, aes(x = `Traffic Control`, fill = `Injury Severity`)) +
+  geom_bar(position = "fill", width = 0.7) +  
+  coord_flip() +  
+  labs(y = "Proportion", x = "Traffic Control", title = "Traffic Control Against Injury Severity Before Imputation") +
+  theme_minimal() +
+  theme(axis.text.y = element_text(angle = 0, hjust = 1, vjust = 0.5), 
+        axis.text.x = element_text(size = 8))
+
+# variable 4: Traffic Control after imputation
+imputed_df$`Traffic Control` <- factor(imputed_df$`Traffic Control`, 
+                                         levels = names(sort(table(imputed_df$`Traffic Control`), decreasing = TRUE)))
+
+# create the plot
+ggplot(imputed_df, aes(x = `Traffic Control`, fill = `Injury Severity`)) +
+  geom_bar(position = "fill", width = 0.7) +  
+  coord_flip() +  
+  labs(y = "Proportion", x = "Traffic Control", title = "Traffic Control Against Injury Severity After Imputation") +
+  theme_minimal() +
+  theme(axis.text.y = element_text(angle = 0, hjust = 1, vjust = 0.5), 
+        axis.text.x = element_text(size = 8))
+
+# explore the distribution of one of the categorical variables
+  ggplot(df, aes(x = imputed_df$`Injury Severity`)) +
+    geom_bar() +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 8)) + # Adjust size as needed
+    labs(title = "The Dependent Variable - Injury Severity", x = "Category", y = "Count")
+  table(df$`Injury Severity`)
+  
+
+write.csv(imputed_df, file = "C:/Users/ruona/OneDrive/Desktop/Imputed_Data.csv", row.names = FALSE)
+```
+
